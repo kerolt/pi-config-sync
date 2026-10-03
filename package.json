@@ -3,12 +3,12 @@
   "version": "0.3.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/diogovdias/pi-config-sync.git"
+    "url": "git+https://github.com/kerolt/pi-config-sync.git"
   },
   "description": "Sync your ~/.pi/agent config across machines through a private git repo — with hard guards that keep secrets out.",
   "type": "module",
   "license": "MIT",
-  "author": "Diogo Dias",
+  "author": "kerolt",
   "keywords": [
     "pi-package"
   ],
