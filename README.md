@@ -3,10 +3,12 @@
 Securely sync your `~/.pi/agent` configuration across machines through a git remote — automatically, with hard guards that keep secrets out.
 It is a [pi package](https://pi.dev/packages) and keeps the repository **in place** (`~/.pi/agent` *is* the repo) so its history stays transparent.
 
+Fork of [diogovdias/pi-config-sync](https://github.com/diogovdias/pi-config-sync).
+
 ## Install
 
 ```sh
-pi install npm:pi-config-sync
+pi install git:github.com/kerolt/pi-config-sync
 ```
 
 ## Quickstart
@@ -113,7 +115,7 @@ git status
 git pull --rebase
 ```
 
-Remove the package with `pi remove npm:pi-config-sync`. Your local repository and remote remain until you delete them yourself.
+Remove the package with `pi remove git:github.com/kerolt/pi-config-sync`. Your local repository and remote remain until you delete them yourself.
 
 If migrating from a hand-rolled `extensions/git-sync.ts`, delete that file first to avoid duplicate `/gitsync` registration.
 
