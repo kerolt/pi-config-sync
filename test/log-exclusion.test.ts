@@ -14,7 +14,7 @@ import {
 	runSync,
 	syncGaps,
 	type GhClient,
-} from "../extensions/git-sync.ts";
+} from "../extensions/index.ts";
 
 const exec = promisify(execFile);
 const logFile =

@@ -22,7 +22,7 @@ import {
   syncGaps,
   withLock,
   type GhClient,
-} from "../extensions/git-sync.ts";
+} from "../extensions/index.ts";
 
 process.env.GIT_AUTHOR_NAME = process.env.GIT_COMMITTER_NAME =
   "pi-git-sync tests";
