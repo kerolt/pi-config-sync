@@ -1,8 +1,5 @@
 # pi-config-sync
 
-[![npm](https://img.shields.io/npm/v/pi-config-sync)](https://www.npmjs.com/package/pi-config-sync)
-[![CI](https://github.com/diogovdias/pi-config-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/diogovdias/pi-config-sync/actions/workflows/ci.yml)
-
 Securely sync your `~/.pi/agent` configuration across machines through a git remote — automatically, with hard guards that keep secrets out.
 It is a [pi package](https://pi.dev/packages) and keeps the repository **in place** (`~/.pi/agent` *is* the repo) so its history stays transparent.
 
@@ -128,7 +125,3 @@ Onboarding flow inspired by [opencode-synced](https://github.com/iHildy/opencode
 - [`pi-sync-config`](https://www.npmjs.com/package/pi-sync-config) — background sync through a separate staging clone, with `settings.json` machine-key stripping, SSH-only remotes, and fast-forward-only pulls.
 
 pi-config-sync differs from both: your agent directory itself is the repository (transparent history, no copy step), sync is fully automatic, onboarding can create the private repo through `gh`, and no destructive git operation exists in any code path. All three register different commands and can coexist.
-
-## Releases
-
-Tags matching `v*` publish automatically through the included GitHub Action using [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC) — no registry tokens exist anywhere in the pipeline. Every release carries a provenance attestation linking the tarball to its exact source commit, verifiable on the npm package page.
