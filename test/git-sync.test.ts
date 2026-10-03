@@ -5,63 +5,750 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { commitLocalChanges, ensureFilter, ensureIgnoreRules, filterInterpreter, findOnPath, isDenied, readConfig, runInit, runLink, runSync, shouldAutoSync, stagedSecretFiles, stripJsonComments, syncGaps, withLock, type GhClient } from "../extensions/git-sync.ts";
+import {
+  commitLocalChanges,
+  ensureFilter,
+  ensureIgnoreRules,
+  filterInterpreter,
+  findOnPath,
+  isDenied,
+  readConfig,
+  runInit,
+  runLink,
+  runSync,
+  shouldAutoSync,
+  stagedSecretFiles,
+  stripJsonComments,
+  syncGaps,
+  withLock,
+  type GhClient,
+} from "../extensions/git-sync.ts";
 
-process.env.GIT_AUTHOR_NAME = process.env.GIT_COMMITTER_NAME = "pi-git-sync tests";
-process.env.GIT_AUTHOR_EMAIL = process.env.GIT_COMMITTER_EMAIL = "tests@pi-git-sync.invalid";
+process.env.GIT_AUTHOR_NAME = process.env.GIT_COMMITTER_NAME =
+  "pi-git-sync tests";
+process.env.GIT_AUTHOR_EMAIL = process.env.GIT_COMMITTER_EMAIL =
+  "tests@pi-git-sync.invalid";
 process.env.GIT_CONFIG_GLOBAL = os.devNull;
 process.env.GIT_CONFIG_SYSTEM = os.devNull;
 delete process.env.PI_SUBAGENT_DEPTH;
 
 const exec = promisify(execFileCb);
-const ctx = { hasUI: false, ui: { setStatus() {}, notify() {} } } as never;
-async function sh(cmd: string, args: string[], cwd?: string) { return exec(cmd, args, { cwd }); }
-async function machine(name: string) { const root = await fs.mkdtemp(path.join(os.tmpdir(), `pi-git-sync-${name}-`)); const dir = path.join(root, "agent"); await fs.mkdir(path.join(dir, "extensions"), { recursive: true }); await fs.writeFile(path.join(dir, "settings.json"), JSON.stringify({ machine: name })); await fs.writeFile(path.join(dir, "AGENTS.md"), "rules\n"); await fs.writeFile(path.join(dir, "extensions", "foo.ts"), "export {}\n"); await fs.writeFile(path.join(dir, "auth.json"), `secret-${name}`); return { root, dir }; }
-async function bare(root: string, name = "origin.git") { const repo = path.join(root, name); await sh("git", ["init", "--bare", "-b", "main", repo]); return repo; }
-function fakeGh(overrides: Partial<GhClient> = {}): GhClient & { calls: string[] } { const calls: string[] = []; return { calls, async available() { calls.push("available"); return true; }, async currentUser() { calls.push("user"); return "tester"; }, async repoExists(id: string) { calls.push(`exists:${id}`); return false; }, async isPrivate(id: string) { calls.push(`private:${id}`); return true; }, async createPrivateRepo(id: string) { calls.push(`create:${id}`); }, remoteUrl(id: string) { return `https://github.com/${id}.git`; }, ...overrides }; }
+const ctx = { hasUI: false, ui: { setStatus() { }, notify() { } } } as never;
+async function sh(cmd: string, args: string[], cwd?: string) {
+  return exec(cmd, args, { cwd });
+}
+async function machine(name: string) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), `pi-git-sync-${name}-`));
+  const dir = path.join(root, "agent");
+  await fs.mkdir(path.join(dir, "extensions"), { recursive: true });
+  await fs.writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({ machine: name }),
+  );
+  await fs.writeFile(path.join(dir, "AGENTS.md"), "rules\n");
+  await fs.writeFile(path.join(dir, "extensions", "foo.ts"), "export {}\n");
+  await fs.writeFile(path.join(dir, "auth.json"), `secret-${name}`);
+  return { root, dir };
+}
+async function bare(root: string, name = "origin.git") {
+  const repo = path.join(root, name);
+  await sh("git", ["init", "--bare", "-b", "main", repo]);
+  return repo;
+}
+function fakeGh(
+  overrides: Partial<GhClient> = {},
+): GhClient & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    async available() {
+      calls.push("available");
+      return true;
+    },
+    async currentUser() {
+      calls.push("user");
+      return "tester";
+    },
+    async repoExists(id: string) {
+      calls.push(`exists:${id}`);
+      return false;
+    },
+    async isPrivate(id: string) {
+      calls.push(`private:${id}`);
+      return true;
+    },
+    async createPrivateRepo(id: string) {
+      calls.push(`create:${id}`);
+    },
+    remoteUrl(id: string) {
+      return `https://github.com/${id}.git`;
+    },
+    ...overrides,
+  };
+}
 
-test("init, link, and sync round-trip without network", async () => { const a = await machine("a"), remote = await bare(a.root); await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() }); const b = await machine("b"); await fs.writeFile(path.join(b.dir, "settings.json"), '{"machine":"local"}'); await runLink(remote, ctx, { dir: b.dir, gh: fakeGh() }); assert.equal(await fs.readFile(path.join(b.dir, "auth.json"), "utf8"), "secret-b"); assert.deepEqual(JSON.parse(await fs.readFile(path.join(b.dir, "settings.json"), "utf8")), { machine: "a" }); assert.equal(await fs.readFile(path.join(b.dir, "settings.json.local-backup"), "utf8"), '{"machine":"local"}'); await fs.writeFile(path.join(b.dir, "settings.json"), '{"machine":"updated"}'); await runSync(ctx, { auto: false, push: true }, { dir: b.dir, gh: fakeGh() }); await runSync(ctx, { auto: false, push: true }, { dir: a.dir, gh: fakeGh() }); assert.deepEqual(JSON.parse(await fs.readFile(path.join(a.dir, "settings.json"), "utf8")), { machine: "updated" }); });
+test("init, link, and sync round-trip without network", async () => {
+  const a = await machine("a"),
+    remote = await bare(a.root);
+  await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() });
+  const b = await machine("b");
+  await fs.writeFile(path.join(b.dir, "settings.json"), '{"machine":"local"}');
+  await runLink(remote, ctx, { dir: b.dir, gh: fakeGh() });
+  assert.equal(
+    await fs.readFile(path.join(b.dir, "auth.json"), "utf8"),
+    "secret-b",
+  );
+  assert.deepEqual(
+    JSON.parse(await fs.readFile(path.join(b.dir, "settings.json"), "utf8")),
+    { machine: "a" },
+  );
+  assert.equal(
+    await fs.readFile(path.join(b.dir, "settings.json.local-backup"), "utf8"),
+    '{"machine":"local"}',
+  );
+  await fs.writeFile(
+    path.join(b.dir, "settings.json"),
+    '{"machine":"updated"}',
+  );
+  await runSync(ctx, { auto: false, push: true }, { dir: b.dir, gh: fakeGh() });
+  await runSync(ctx, { auto: false, push: true }, { dir: a.dir, gh: fakeGh() });
+  assert.deepEqual(
+    JSON.parse(await fs.readFile(path.join(a.dir, "settings.json"), "utf8")),
+    { machine: "updated" },
+  );
+});
 
-test("staging guard refuses secrets even when manually force-added", async () => { const a = await machine("guard"); await sh("git", ["init", "-b", "main"], a.dir); await ensureIgnoreRules(a.dir); await fs.mkdir(path.join(a.dir, "extensions", "secrets"), { recursive: true }); await fs.writeFile(path.join(a.dir, "extensions", "secrets", "api-keys.json"), "k"); await sh("git", ["add", "-f", "auth.json", "extensions/foo.ts", "extensions/secrets/api-keys.json"], a.dir); await assert.rejects(() => commitLocalChanges({ dir: a.dir }), /sensitive paths: .*auth\.json.*extensions\/secrets\/api-keys\.json/s); assert.deepEqual(await stagedSecretFiles(a.dir), []); });
+test("staging guard refuses secrets even when manually force-added", async () => {
+  const a = await machine("guard");
+  await sh("git", ["init", "-b", "main"], a.dir);
+  await ensureIgnoreRules(a.dir);
+  await fs.mkdir(path.join(a.dir, "extensions", "secrets"), {
+    recursive: true,
+  });
+  await fs.writeFile(
+    path.join(a.dir, "extensions", "secrets", "api-keys.json"),
+    "k",
+  );
+  await sh(
+    "git",
+    [
+      "add",
+      "-f",
+      "auth.json",
+      "extensions/foo.ts",
+      "extensions/secrets/api-keys.json",
+    ],
+    a.dir,
+  );
+  await assert.rejects(
+    () => commitLocalChanges({ dir: a.dir }),
+    /sensitive paths: .*auth\.json.*extensions\/secrets\/api-keys\.json/s,
+  );
+  assert.deepEqual(await stagedSecretFiles(a.dir), []);
+});
 
-test("denylist matches every path segment and ignore-pattern class", () => { for (const file of ["secrets/key.json", "tokens/x.txt", "auth/x.json", "extensions/secrets/api-keys.json", "prod.env", "foo.local.json", "sub/creds.env.bak", ".env", "a/.env.production", "state/x", "npm/pkg/index.js"]) assert.ok(isDenied(file), `expected denied: ${file}`); for (const file of ["settings.json", "AGENTS.md", "extensions/foo.ts", "chains/build.chain.md", "themes/t.json", "git-sync.jsonc"]) assert.ok(!isDenied(file), `expected allowed: ${file}`); });
+test("denylist matches every path segment and ignore-pattern class", () => {
+  for (const file of [
+    "secrets/key.json",
+    "tokens/x.txt",
+    "auth/x.json",
+    "extensions/secrets/api-keys.json",
+    "prod.env",
+    "foo.local.json",
+    "sub/creds.env.bak",
+    ".env",
+    "a/.env.production",
+    "state/x",
+    "npm/pkg/index.js",
+  ])
+    assert.ok(isDenied(file), `expected denied: ${file}`);
+  for (const file of [
+    "settings.json",
+    "AGENTS.md",
+    "extensions/foo.ts",
+    "chains/build.chain.md",
+    "themes/t.json",
+    "git-sync.jsonc",
+  ])
+    assert.ok(!isDenied(file), `expected allowed: ${file}`);
+});
 
-test("sync refuses a parent repo when the agent dir is not a repo", async () => { const root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-git-sync-parent-")); await sh("git", ["init", "-b", "main"], root); const remote = await bare(root, "home-origin.git"); await sh("git", ["remote", "add", "origin", remote], root); await fs.writeFile(path.join(root, "private-note.txt"), "home file"); const dir = path.join(root, "agent"); await fs.mkdir(dir, { recursive: true }); assert.equal(await shouldAutoSync({ dir }), false); let warned = ""; await runSync(ctx, { auto: false, push: true }, { dir, gh: fakeGh(), notify: text => { warned = text; } }); assert.match(warned, /no git repo/); const { stdout } = await sh("git", ["status", "--porcelain"], root); assert.match(stdout, /private-note\.txt/); const log = await sh("git", ["log", "--oneline"], root).catch(() => ({ stdout: "" })); assert.doesNotMatch(log.stdout, /auto-sync/); });
+test("sync refuses a parent repo when the agent dir is not a repo", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-git-sync-parent-"));
+  await sh("git", ["init", "-b", "main"], root);
+  const remote = await bare(root, "home-origin.git");
+  await sh("git", ["remote", "add", "origin", remote], root);
+  await fs.writeFile(path.join(root, "private-note.txt"), "home file");
+  const dir = path.join(root, "agent");
+  await fs.mkdir(dir, { recursive: true });
+  assert.equal(await shouldAutoSync({ dir }), false);
+  let warned = "";
+  await runSync(
+    ctx,
+    { auto: false, push: true },
+    {
+      dir,
+      gh: fakeGh(),
+      notify: (text) => {
+        warned = text;
+      },
+    },
+  );
+  assert.match(warned, /no git repo/);
+  const { stdout } = await sh("git", ["status", "--porcelain"], root);
+  assert.match(stdout, /private-note\.txt/);
+  const log = await sh("git", ["log", "--oneline"], root).catch(() => ({
+    stdout: "",
+  }));
+  assert.doesNotMatch(log.stdout, /auto-sync/);
+});
 
-test("init writes an allowlist before its first commit", async () => { const a = await machine("rules"), remote = await bare(a.root); await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() }); const tree = (await sh("git", ["ls-tree", "-r", "--name-only", "HEAD"], a.dir)).stdout.split("\n"); assert(tree.includes(".gitignore")); assert(!tree.some(x => x === "auth.json")); assert.match(await fs.readFile(path.join(a.dir, ".git", "info", "exclude"), "utf8"), /auth\*/); });
+test("init writes an allowlist before its first commit", async () => {
+  const a = await machine("rules"),
+    remote = await bare(a.root);
+  await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() });
+  const tree = (
+    await sh("git", ["ls-tree", "-r", "--name-only", "HEAD"], a.dir)
+  ).stdout.split("\n");
+  assert(tree.includes(".gitignore"));
+  assert(!tree.some((x) => x === "auth.json"));
+  assert.match(
+    await fs.readFile(path.join(a.dir, ".git", "info", "exclude"), "utf8"),
+    /auth\*/,
+  );
+});
 
-test("init aborts when secrets are already tracked", async () => { const a = await machine("tracked"), remote = await bare(a.root); await sh("git", ["init", "-b", "main"], a.dir); await sh("git", ["add", "-f", "auth.json"], a.dir); await sh("git", ["commit", "-m", "oops"], a.dir); await assert.rejects(() => runInit(remote, ctx, { dir: a.dir, gh: fakeGh() }), /tracked sensitive files: auth\.json/); });
+test("init aborts when secrets are already tracked", async () => {
+  const a = await machine("tracked"),
+    remote = await bare(a.root);
+  await sh("git", ["init", "-b", "main"], a.dir);
+  await sh("git", ["add", "-f", "auth.json"], a.dir);
+  await sh("git", ["commit", "-m", "oops"], a.dir);
+  await assert.rejects(
+    () => runInit(remote, ctx, { dir: a.dir, gh: fakeGh() }),
+    /tracked sensitive files: auth\.json/,
+  );
+});
 
-test("init without a URL creates a private repo through gh", async () => { const a = await machine("gh-init"); const repo = await bare(a.root, "created.git"); const gh = fakeGh({ remoteUrl: () => repo }); await runInit("", ctx, { dir: a.dir, gh }); assert.ok(gh.calls.includes("create:tester/pi-agent-config"), gh.calls.join(",")); const heads = (await sh("git", ["ls-remote", "--heads", repo])).stdout; assert.match(heads, /refs\/heads\/main/); });
+test("init without a URL creates a private repo through gh", async () => {
+  const a = await machine("gh-init");
+  const repo = await bare(a.root, "created.git");
+  const gh = fakeGh({ remoteUrl: () => repo });
+  await runInit("", ctx, { dir: a.dir, gh });
+  assert.ok(
+    gh.calls.includes("create:tester/pi-agent-config"),
+    gh.calls.join(","),
+  );
+  const heads = (await sh("git", ["ls-remote", "--heads", repo])).stdout;
+  assert.match(heads, /refs\/heads\/main/);
+});
 
-test("init suggests link when the repo already exists on gh", async () => { const a = await machine("gh-exists"); const gh = fakeGh({ repoExists: async () => true }); await assert.rejects(() => runInit("", ctx, { dir: a.dir, gh }), /use \/gitsync link/); });
+test("init suggests link when the repo already exists on gh", async () => {
+  const a = await machine("gh-exists");
+  const gh = fakeGh({ repoExists: async () => true });
+  await assert.rejects(
+    () => runInit("", ctx, { dir: a.dir, gh }),
+    /use \/gitsync link/,
+  );
+});
 
-test("init rejects an invalid repository reference", async () => { const a = await machine("gh-bad"); await assert.rejects(() => runInit("a/b/c", ctx, { dir: a.dir, gh: fakeGh() }), /invalid repository reference/); });
+test("init rejects an invalid repository reference", async () => {
+  const a = await machine("gh-bad");
+  await assert.rejects(
+    () => runInit("a/b/c", ctx, { dir: a.dir, gh: fakeGh() }),
+    /invalid repository reference/,
+  );
+});
 
-test("link discovers an existing sync repo through gh", async () => { const a = await machine("seed"), remote = await bare(a.root); await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() }); const b = await machine("linked"); const gh = fakeGh({ repoExists: async id => id === "tester/pi-config", remoteUrl: () => remote }); await runLink("", ctx, { dir: b.dir, gh }); assert.equal((await sh("git", ["remote", "get-url", "origin"], b.dir)).stdout.trim(), remote); assert.deepEqual(JSON.parse(await fs.readFile(path.join(b.dir, "settings.json"), "utf8")), { machine: "seed" }); });
+test("link discovers an existing sync repo through gh", async () => {
+  const a = await machine("seed"),
+    remote = await bare(a.root);
+  await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() });
+  const b = await machine("linked");
+  const gh = fakeGh({
+    repoExists: async (id) => id === "tester/pi-config",
+    remoteUrl: () => remote,
+  });
+  await runLink("", ctx, { dir: b.dir, gh });
+  assert.equal(
+    (await sh("git", ["remote", "get-url", "origin"], b.dir)).stdout.trim(),
+    remote,
+  );
+  assert.deepEqual(
+    JSON.parse(await fs.readFile(path.join(b.dir, "settings.json"), "utf8")),
+    { machine: "seed" },
+  );
+});
 
-test("link refuses to overwrite existing local git history", async () => { const a = await machine("seed2"), remote = await bare(a.root); await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() }); const b = await machine("history"); await sh("git", ["init", "-b", "main"], b.dir); await sh("git", ["add", "extensions/foo.ts"], b.dir); await sh("git", ["commit", "-m", "local work"], b.dir); await assert.rejects(() => runLink(remote, ctx, { dir: b.dir, gh: fakeGh() }), /existing git history/); assert.equal(await fs.readFile(path.join(b.dir, "extensions", "foo.ts"), "utf8"), "export {}\n"); });
+test("link refuses to overwrite existing local git history", async () => {
+  const a = await machine("seed2"),
+    remote = await bare(a.root);
+  await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() });
+  const b = await machine("history");
+  await sh("git", ["init", "-b", "main"], b.dir);
+  await sh("git", ["add", "extensions/foo.ts"], b.dir);
+  await sh("git", ["commit", "-m", "local work"], b.dir);
+  await assert.rejects(
+    () => runLink(remote, ctx, { dir: b.dir, gh: fakeGh() }),
+    /existing git history/,
+  );
+  assert.equal(
+    await fs.readFile(path.join(b.dir, "extensions", "foo.ts"), "utf8"),
+    "export {}\n",
+  );
+});
 
-test("legacy pi-git-sync managed block is migrated, custom rules kept", async () => { const a = await machine("legacy"); const legacy = "# >>> pi-git-sync managed — do not edit inside this block\n*\n!settings.json\nauth*\n# <<< pi-git-sync managed\n"; await fs.writeFile(path.join(a.dir, ".gitignore"), `custom-rule\n${legacy}`); await ensureIgnoreRules(a.dir); const ignore = await fs.readFile(path.join(a.dir, ".gitignore"), "utf8"); assert.doesNotMatch(ignore, /pi-git-sync managed/); assert.match(ignore, /pi-config-sync managed/); assert.match(ignore, /custom-rule/); assert.equal(ignore.match(/managed — do not edit/g)?.length, 1); });
+test("legacy pi-git-sync managed block is migrated, custom rules kept", async () => {
+  const a = await machine("legacy");
+  const legacy =
+    "# >>> pi-git-sync managed — do not edit inside this block\n*\n!settings.json\nauth*\n# <<< pi-git-sync managed\n";
+  await fs.writeFile(path.join(a.dir, ".gitignore"), `custom-rule\n${legacy}`);
+  await ensureIgnoreRules(a.dir);
+  const ignore = await fs.readFile(path.join(a.dir, ".gitignore"), "utf8");
+  assert.doesNotMatch(ignore, /pi-git-sync managed/);
+  assert.match(ignore, /pi-config-sync managed/);
+  assert.match(ignore, /custom-rule/);
+  assert.equal(ignore.match(/managed — do not edit/g)?.length, 1);
+});
 
-test("lock skips a live owner, clears a dead owner, and ignores corrupt pids", async () => { const a = await machine("lock"), state = path.join(a.dir, ".git-sync"); await fs.mkdir(state); await fs.writeFile(path.join(state, "lock"), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })); assert.equal(await withLock(ctx, async () => "ran", { dir: a.dir }), undefined); await fs.writeFile(path.join(state, "lock"), JSON.stringify({ pid: 999999, startedAt: new Date(0).toISOString() })); assert.equal(await withLock(ctx, async () => "ran", { dir: a.dir }), "ran"); await fs.writeFile(path.join(state, "lock"), JSON.stringify({ pid: 0, startedAt: new Date().toISOString() })); assert.equal(await withLock(ctx, async () => "ran2", { dir: a.dir }), "ran2"); await assert.rejects(fs.access(path.join(state, "lock"))); });
+test("lock skips a live owner, clears a dead owner, and ignores corrupt pids", async () => {
+  const a = await machine("lock"),
+    state = path.join(a.dir, ".git-sync");
+  await fs.mkdir(state);
+  await fs.writeFile(
+    path.join(state, "lock"),
+    JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }),
+  );
+  assert.equal(
+    await withLock(ctx, async () => "ran", { dir: a.dir }),
+    undefined,
+  );
+  await fs.writeFile(
+    path.join(state, "lock"),
+    JSON.stringify({ pid: 999999, startedAt: new Date(0).toISOString() }),
+  );
+  assert.equal(await withLock(ctx, async () => "ran", { dir: a.dir }), "ran");
+  await fs.writeFile(
+    path.join(state, "lock"),
+    JSON.stringify({ pid: 0, startedAt: new Date().toISOString() }),
+  );
+  assert.equal(await withLock(ctx, async () => "ran2", { dir: a.dir }), "ran2");
+  await assert.rejects(fs.access(path.join(state, "lock")));
+});
 
-test("JSONC config drives rate limit, hostname, warnings, and extra paths", async () => { const a = await machine("config"); await sh("git", ["init", "-b", "main"], a.dir); await sh("git", ["remote", "add", "origin", path.join(a.root, "none")], a.dir); await fs.writeFile(path.join(a.dir, "git-sync.jsonc"), '{ /* comment */ "autoSyncIntervalMinutes": 30, "includeHostname": false, "extraPaths": ["safe", "notes/safe", "my.dir/", "../bad", "mytoken"] }'); await fs.mkdir(path.join(a.dir, ".git-sync")); await fs.writeFile(path.join(a.dir, ".git-sync", "state.json"), JSON.stringify({ lastAutoSyncAt: new Date().toISOString() })); assert.equal(stripJsonComments('{// x\n"a": 1}'), '{\n"a": 1}'); assert.equal(await shouldAutoSync({ dir: a.dir }), false); await fs.writeFile(path.join(a.dir, ".git-sync", "state.json"), JSON.stringify({ lastAutoSyncAt: new Date(Date.now() - 31 * 60_000).toISOString() })); assert.equal(await shouldAutoSync({ dir: a.dir }), true); let warning = ""; const config = await readConfig({ dir: a.dir, notify: text => { warning = text; } }); assert.match(warning, /unsafe extraPaths/); await ensureIgnoreRules(a.dir, config); const ignore = await fs.readFile(path.join(a.dir, ".gitignore"), "utf8"); assert.match(ignore, /!safe\//); assert.match(ignore, /!notes\/\n/); assert.match(ignore, /!notes\/safe\/\*\*/); assert.match(ignore, /!my\.dir\/\*\*/); assert.doesNotMatch(ignore, /mytoken/); await fs.mkdir(path.join(a.dir, "notes"), { recursive: true }); await fs.writeFile(path.join(a.dir, "notes", "safe"), "n\n"); await fs.mkdir(path.join(a.dir, "my.dir"), { recursive: true }); await fs.writeFile(path.join(a.dir, "my.dir", "inner.md"), "m\n"); for (const tracked of ["notes/safe", "my.dir/inner.md"]) { const ignored = await sh("git", ["check-ignore", tracked], a.dir).then(() => true).catch(() => false); assert.equal(ignored, false, `expected synced: ${tracked}`); } await commitLocalChanges({ dir: a.dir }); assert.equal((await sh("git", ["log", "-1", "--format=%s"], a.dir)).stdout.trim(), "pi config: auto-sync"); });
+test("JSONC config drives rate limit, hostname, warnings, and extra paths", async () => {
+  const a = await machine("config");
+  await sh("git", ["init", "-b", "main"], a.dir);
+  await sh(
+    "git",
+    ["remote", "add", "origin", path.join(a.root, "none")],
+    a.dir,
+  );
+  await fs.writeFile(
+    path.join(a.dir, "git-sync.jsonc"),
+    '{ /* comment */ "autoSyncIntervalMinutes": 30, "includeHostname": false, "extraPaths": ["safe", "notes/safe", "my.dir/", "../bad", "mytoken"] }',
+  );
+  await fs.mkdir(path.join(a.dir, ".git-sync"));
+  await fs.writeFile(
+    path.join(a.dir, ".git-sync", "state.json"),
+    JSON.stringify({ lastAutoSyncAt: new Date().toISOString() }),
+  );
+  assert.equal(stripJsonComments('{// x\n"a": 1}'), '{\n"a": 1}');
+  assert.equal(await shouldAutoSync({ dir: a.dir }), false);
+  await fs.writeFile(
+    path.join(a.dir, ".git-sync", "state.json"),
+    JSON.stringify({
+      lastAutoSyncAt: new Date(Date.now() - 31 * 60_000).toISOString(),
+    }),
+  );
+  assert.equal(await shouldAutoSync({ dir: a.dir }), true);
+  let warning = "";
+  const config = await readConfig({
+    dir: a.dir,
+    notify: (text) => {
+      warning = text;
+    },
+  });
+  assert.match(warning, /unsafe extraPaths/);
+  await ensureIgnoreRules(a.dir, config);
+  const ignore = await fs.readFile(path.join(a.dir, ".gitignore"), "utf8");
+  assert.match(ignore, /!safe\//);
+  assert.match(ignore, /!notes\/\n/);
+  assert.match(ignore, /!notes\/safe\/\*\*/);
+  assert.match(ignore, /!my\.dir\/\*\*/);
+  assert.doesNotMatch(ignore, /mytoken/);
+  await fs.mkdir(path.join(a.dir, "notes"), { recursive: true });
+  await fs.writeFile(path.join(a.dir, "notes", "safe"), "n\n");
+  await fs.mkdir(path.join(a.dir, "my.dir"), { recursive: true });
+  await fs.writeFile(path.join(a.dir, "my.dir", "inner.md"), "m\n");
+  for (const tracked of ["notes/safe", "my.dir/inner.md"]) {
+    const ignored = await sh("git", ["check-ignore", tracked], a.dir)
+      .then(() => true)
+      .catch(() => false);
+    assert.equal(ignored, false, `expected synced: ${tracked}`);
+  }
+  await commitLocalChanges({ dir: a.dir });
+  assert.equal(
+    (await sh("git", ["log", "-1", "--format=%s"], a.dir)).stdout.trim(),
+    "pi config: auto-sync",
+  );
+});
 
-test("machine-local filter strips committed settings and preserves local values", async () => { const a = await machine("machine-a"), remote = await bare(a.root); await fs.writeFile(path.join(a.dir, "settings.json"), JSON.stringify({ theme: "dark", lastChangelogVersion: "0.80.6" })); await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() }); const blob = (await sh("git", ["show", "HEAD:settings.json"], a.dir)).stdout; assert.doesNotMatch(blob, /lastChangelogVersion/); assert.match((await sh("git", ["config", "--get", "filter.pi-config-sync.clean"], a.dir)).stdout, /filter\.mjs/); assert.equal((await sh("git", ["config", "--get", "filter.pi-config-sync.required"], a.dir)).stdout.trim(), "false"); assert.match((await sh("git", ["ls-files"], a.dir)).stdout, /\.gitattributes/); assert.doesNotMatch((await sh("git", ["ls-files"], a.dir)).stdout, /\.git-sync/); const before = (await sh("git", ["rev-parse", "HEAD"], a.dir)).stdout; await fs.writeFile(path.join(a.dir, "settings.json"), JSON.stringify({ theme: "dark", lastChangelogVersion: "0.81.0" })); await runSync(ctx, { auto: false, push: false }, { dir: a.dir, gh: fakeGh() }); assert.equal((await sh("git", ["rev-parse", "HEAD"], a.dir)).stdout, before); assert.equal((await sh("git", ["status", "--porcelain"], a.dir)).stdout.trim(), ""); });
+test("machine-local filter strips committed settings and preserves local values", async () => {
+  const a = await machine("machine-a"),
+    remote = await bare(a.root);
+  await fs.writeFile(
+    path.join(a.dir, "settings.json"),
+    JSON.stringify({ theme: "dark", lastChangelogVersion: "0.80.6" }),
+  );
+  await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() });
+  const blob = (await sh("git", ["show", "HEAD:settings.json"], a.dir)).stdout;
+  assert.doesNotMatch(blob, /lastChangelogVersion/);
+  assert.match(
+    (await sh("git", ["config", "--get", "filter.pi-config-sync.clean"], a.dir))
+      .stdout,
+    /filter\.mjs/,
+  );
+  assert.equal(
+    (
+      await sh(
+        "git",
+        ["config", "--get", "filter.pi-config-sync.required"],
+        a.dir,
+      )
+    ).stdout.trim(),
+    "false",
+  );
+  assert.match(
+    (await sh("git", ["ls-files"], a.dir)).stdout,
+    /\.gitattributes/,
+  );
+  assert.doesNotMatch(
+    (await sh("git", ["ls-files"], a.dir)).stdout,
+    /\.git-sync/,
+  );
+  const before = (await sh("git", ["rev-parse", "HEAD"], a.dir)).stdout;
+  await fs.writeFile(
+    path.join(a.dir, "settings.json"),
+    JSON.stringify({ theme: "dark", lastChangelogVersion: "0.81.0" }),
+  );
+  await runSync(
+    ctx,
+    { auto: false, push: false },
+    { dir: a.dir, gh: fakeGh() },
+  );
+  assert.equal((await sh("git", ["rev-parse", "HEAD"], a.dir)).stdout, before);
+  assert.equal(
+    (await sh("git", ["status", "--porcelain"], a.dir)).stdout.trim(),
+    "",
+  );
+});
 
-test("filter passes malformed settings through byte-identically", async () => { const a = await machine("filter-raw"); await sh("git", ["init", "-b", "main"], a.dir); await commitLocalChanges({ dir: a.dir }); const script = path.join(a.dir, ".git-sync", "filter.mjs"), raw = Buffer.from('{ broken\n'); const run = (mode: string) => new Promise<Buffer>((resolve, reject) => { const child = execFileCb(process.execPath, [script, mode], (error, stdout) => error ? reject(error) : resolve(Buffer.from(stdout))); child.stdin?.end(raw); }); assert.deepEqual(await run("clean"), raw); assert.deepEqual(await run("smudge"), raw); });
+test("filter passes malformed settings through byte-identically", async () => {
+  const a = await machine("filter-raw");
+  await sh("git", ["init", "-b", "main"], a.dir);
+  await commitLocalChanges({ dir: a.dir });
+  const script = path.join(a.dir, ".git-sync", "filter.mjs"),
+    raw = Buffer.from("{ broken\n");
+  const run = (mode: string) =>
+    new Promise<Buffer>((resolve, reject) => {
+      const child = execFileCb(
+        process.execPath,
+        [script, mode],
+        (error, stdout) =>
+          error ? reject(error) : resolve(Buffer.from(stdout)),
+      );
+      child.stdin?.end(raw);
+    });
+  assert.deepEqual(await run("clean"), raw);
+  assert.deepEqual(await run("smudge"), raw);
+});
 
-test("machineLocalSettings replaces defaults and rejects invalid entries", async () => { const a = await machine("custom-machine"); await sh("git", ["init", "-b", "main"], a.dir); let warning = ""; await fs.writeFile(path.join(a.dir, "git-sync.jsonc"), '{"machineLocalSettings":["theme", "", 2]}'); await fs.writeFile(path.join(a.dir, "settings.json"), JSON.stringify({ theme: "dark", lastChangelogVersion: "0.80.6" })); const config = await readConfig({ dir: a.dir, notify: text => { warning = text; } }); assert.deepEqual(config.machineLocalSettings, ["theme"]); assert.match(warning, /invalid machineLocalSettings/); await commitLocalChanges({ dir: a.dir }); const blob = (await sh("git", ["show", "HEAD:settings.json"], a.dir)).stdout; assert.doesNotMatch(blob, /"theme"/); assert.match(blob, /lastChangelogVersion/); });
+test("machineLocalSettings replaces defaults and rejects invalid entries", async () => {
+  const a = await machine("custom-machine");
+  await sh("git", ["init", "-b", "main"], a.dir);
+  let warning = "";
+  await fs.writeFile(
+    path.join(a.dir, "git-sync.jsonc"),
+    '{"machineLocalSettings":["theme", "", 2]}',
+  );
+  await fs.writeFile(
+    path.join(a.dir, "settings.json"),
+    JSON.stringify({ theme: "dark", lastChangelogVersion: "0.80.6" }),
+  );
+  const config = await readConfig({
+    dir: a.dir,
+    notify: (text) => {
+      warning = text;
+    },
+  });
+  assert.deepEqual(config.machineLocalSettings, ["theme"]);
+  assert.match(warning, /invalid machineLocalSettings/);
+  await commitLocalChanges({ dir: a.dir });
+  const blob = (await sh("git", ["show", "HEAD:settings.json"], a.dir)).stdout;
+  assert.doesNotMatch(blob, /"theme"/);
+  assert.match(blob, /lastChangelogVersion/);
+});
 
-test("machine-local values stay per machine while portable settings sync", async () => { const a = await machine("mla"), remote = await bare(a.root); await fs.writeFile(path.join(a.dir, "settings.json"), JSON.stringify({ theme: "dark", lastChangelogVersion: "0.80.6" }, null, 2) + "\n"); await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() }); const b = await machine("mlb"); await fs.writeFile(path.join(b.dir, "settings.json"), JSON.stringify({ theme: "light", lastChangelogVersion: "0.81.0" }, null, 2) + "\n"); await runLink(remote, ctx, { dir: b.dir, gh: fakeGh() }); const linked = JSON.parse(await fs.readFile(path.join(b.dir, "settings.json"), "utf8")); assert.equal(linked.theme, "dark"); assert.equal(linked.lastChangelogVersion, "0.81.0"); await fs.writeFile(path.join(b.dir, "settings.json"), JSON.stringify({ ...linked, theme: "solar" }, null, 2) + "\n"); await runSync(ctx, { auto: false, push: true }, { dir: b.dir, gh: fakeGh() }); assert.doesNotMatch((await sh("git", ["show", "HEAD:settings.json"], b.dir)).stdout, /lastChangelogVersion/); const drifted = JSON.parse(await fs.readFile(path.join(a.dir, "settings.json"), "utf8")); await fs.writeFile(path.join(a.dir, "settings.json"), JSON.stringify({ ...drifted, lastChangelogVersion: "0.80.7" }, null, 2) + "\n"); await runSync(ctx, { auto: false, push: true }, { dir: a.dir, gh: fakeGh() }); const pulled = JSON.parse(await fs.readFile(path.join(a.dir, "settings.json"), "utf8")); assert.equal(pulled.theme, "solar"); assert.equal(pulled.lastChangelogVersion, "0.80.7"); });
+test("machine-local values stay per machine while portable settings sync", async () => {
+  const a = await machine("mla"),
+    remote = await bare(a.root);
+  await fs.writeFile(
+    path.join(a.dir, "settings.json"),
+    JSON.stringify({ theme: "dark", lastChangelogVersion: "0.80.6" }, null, 2) +
+    "\n",
+  );
+  await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() });
+  const b = await machine("mlb");
+  await fs.writeFile(
+    path.join(b.dir, "settings.json"),
+    JSON.stringify(
+      { theme: "light", lastChangelogVersion: "0.81.0" },
+      null,
+      2,
+    ) + "\n",
+  );
+  await runLink(remote, ctx, { dir: b.dir, gh: fakeGh() });
+  const linked = JSON.parse(
+    await fs.readFile(path.join(b.dir, "settings.json"), "utf8"),
+  );
+  assert.equal(linked.theme, "dark");
+  assert.equal(linked.lastChangelogVersion, "0.81.0");
+  await fs.writeFile(
+    path.join(b.dir, "settings.json"),
+    JSON.stringify({ ...linked, theme: "solar" }, null, 2) + "\n",
+  );
+  await runSync(ctx, { auto: false, push: true }, { dir: b.dir, gh: fakeGh() });
+  assert.doesNotMatch(
+    (await sh("git", ["show", "HEAD:settings.json"], b.dir)).stdout,
+    /lastChangelogVersion/,
+  );
+  const drifted = JSON.parse(
+    await fs.readFile(path.join(a.dir, "settings.json"), "utf8"),
+  );
+  await fs.writeFile(
+    path.join(a.dir, "settings.json"),
+    JSON.stringify({ ...drifted, lastChangelogVersion: "0.80.7" }, null, 2) +
+    "\n",
+  );
+  await runSync(ctx, { auto: false, push: true }, { dir: a.dir, gh: fakeGh() });
+  const pulled = JSON.parse(
+    await fs.readFile(path.join(a.dir, "settings.json"), "utf8"),
+  );
+  assert.equal(pulled.theme, "solar");
+  assert.equal(pulled.lastChangelogVersion, "0.80.7");
+});
 
-test("a machine without the filter fails open and filtered machines keep their values", async () => { const a = await machine("ffa"), remote = await bare(a.root); await fs.writeFile(path.join(a.dir, "settings.json"), JSON.stringify({ theme: "dark", lastChangelogVersion: "1.0.0" }, null, 2) + "\n"); await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() }); const raw = path.join(a.root, "rawclone"); await sh("git", ["clone", remote, raw]); const settings = JSON.parse(await fs.readFile(path.join(raw, "settings.json"), "utf8")); await fs.writeFile(path.join(raw, "settings.json"), JSON.stringify({ ...settings, theme: "mono", lastChangelogVersion: "9.9.9" }, null, 2) + "\n"); await sh("git", ["add", "-A"], raw); await sh("git", ["commit", "-m", "raw edit"], raw); await sh("git", ["push"], raw); assert.match((await sh("git", ["show", "HEAD:settings.json"], raw)).stdout, /9\.9\.9/); await runSync(ctx, { auto: false, push: true }, { dir: a.dir, gh: fakeGh() }); const merged = JSON.parse(await fs.readFile(path.join(a.dir, "settings.json"), "utf8")); assert.equal(merged.theme, "mono"); assert.equal(merged.lastChangelogVersion, "1.0.0"); });
+test("a machine without the filter fails open and filtered machines keep their values", async () => {
+  const a = await machine("ffa"),
+    remote = await bare(a.root);
+  await fs.writeFile(
+    path.join(a.dir, "settings.json"),
+    JSON.stringify({ theme: "dark", lastChangelogVersion: "1.0.0" }, null, 2) +
+    "\n",
+  );
+  await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() });
+  const raw = path.join(a.root, "rawclone");
+  await sh("git", ["clone", remote, raw]);
+  const settings = JSON.parse(
+    await fs.readFile(path.join(raw, "settings.json"), "utf8"),
+  );
+  await fs.writeFile(
+    path.join(raw, "settings.json"),
+    JSON.stringify(
+      { ...settings, theme: "mono", lastChangelogVersion: "9.9.9" },
+      null,
+      2,
+    ) + "\n",
+  );
+  await sh("git", ["add", "-A"], raw);
+  await sh("git", ["commit", "-m", "raw edit"], raw);
+  await sh("git", ["push"], raw);
+  assert.match(
+    (await sh("git", ["show", "HEAD:settings.json"], raw)).stdout,
+    /9\.9\.9/,
+  );
+  await runSync(ctx, { auto: false, push: true }, { dir: a.dir, gh: fakeGh() });
+  const merged = JSON.parse(
+    await fs.readFile(path.join(a.dir, "settings.json"), "utf8"),
+  );
+  assert.equal(merged.theme, "mono");
+  assert.equal(merged.lastChangelogVersion, "1.0.0");
+});
 
-test("filter interpreter prefers nodePath, then execPath, then node on PATH, then a fail-open fallback", async () => { const root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-git-sync-node-")); const fakeNode = path.join(root, "node"); await fs.writeFile(fakeNode, "#!/bin/sh\n"); await fs.chmod(fakeNode, 0o755); const bundled = { bundled: true, execPath: "/opt/pi/pi", pathEnv: root }; assert.equal(await filterInterpreter({ nodePath: "/custom/node" }, bundled), "/custom/node"); assert.equal(await filterInterpreter({}, { ...bundled, bundled: false }), "/opt/pi/pi"); assert.equal(await filterInterpreter({}, bundled), fakeNode); assert.equal(await findOnPath("node", path.join(root, "missing"), "linux"), undefined); let warning = ""; assert.equal(await filterInterpreter({}, { ...bundled, pathEnv: "" }, undefined, { notify: text => { warning = text; } }), "node"); assert.match(warning, /no node was found on PATH/); });
+test("filter interpreter prefers nodePath, then execPath, then node on PATH, then a fail-open fallback", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-git-sync-node-"));
+  const fakeNode = path.join(root, "node");
+  await fs.writeFile(fakeNode, "#!/bin/sh\n");
+  await fs.chmod(fakeNode, 0o755);
+  const bundled = { bundled: true, execPath: "/opt/pi/pi", pathEnv: root };
+  assert.equal(
+    await filterInterpreter({ nodePath: "/custom/node" }, bundled),
+    "/custom/node",
+  );
+  assert.equal(
+    await filterInterpreter({}, { ...bundled, bundled: false }),
+    "/opt/pi/pi",
+  );
+  assert.equal(await filterInterpreter({}, bundled), fakeNode);
+  assert.equal(
+    await findOnPath("node", path.join(root, "missing"), "linux"),
+    undefined,
+  );
+  let warning = "";
+  assert.equal(
+    await filterInterpreter({}, { ...bundled, pathEnv: "" }, undefined, {
+      notify: (text) => {
+        warning = text;
+      },
+    }),
+    "node",
+  );
+  assert.match(warning, /no node was found on PATH/);
+});
 
-test("bundled pi never registers itself as the git filter and nodePath repairs an existing config", async () => { const a = await machine("bundled"); await sh("git", ["init", "-b", "main"], a.dir); const root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-git-sync-path-")); const fakeNode = path.join(root, "node"); await fs.writeFile(fakeNode, "#!/bin/sh\ncat\n"); await fs.chmod(fakeNode, 0o755); await sh("git", ["config", "filter.pi-config-sync.clean", "'/opt/pi/pi' filter.mjs clean"], a.dir); const runtime = { bundled: true, execPath: "/opt/pi/pi", pathEnv: root }; await ensureFilter(a.dir, {}, undefined, { runtime }); const clean = (await sh("git", ["config", "--get", "filter.pi-config-sync.clean"], a.dir)).stdout; assert.match(clean, new RegExp(`^'${fakeNode}' '.*filter\\.mjs' clean`)); assert.doesNotMatch(clean, /\/opt\/pi\/pi/); await fs.writeFile(path.join(a.dir, "git-sync.jsonc"), JSON.stringify({ nodePath: process.execPath })); await commitLocalChanges({ dir: a.dir, runtime }); assert.match((await sh("git", ["config", "--get", "filter.pi-config-sync.clean"], a.dir)).stdout, new RegExp(`^'${process.execPath.replaceAll("'", "'\\\\''")}' `)); assert.match((await sh("git", ["ls-tree", "-r", "--name-only", "HEAD"], a.dir)).stdout, /settings\.json/); });
+test("bundled pi never registers itself as the git filter and nodePath repairs an existing config", async () => {
+  const a = await machine("bundled");
+  await sh("git", ["init", "-b", "main"], a.dir);
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-git-sync-path-"));
+  const fakeNode = path.join(root, "node");
+  await fs.writeFile(fakeNode, "#!/bin/sh\ncat\n");
+  await fs.chmod(fakeNode, 0o755);
+  await sh(
+    "git",
+    ["config", "filter.pi-config-sync.clean", "'/opt/pi/pi' filter.mjs clean"],
+    a.dir,
+  );
+  const runtime = { bundled: true, execPath: "/opt/pi/pi", pathEnv: root };
+  await ensureFilter(a.dir, {}, undefined, { runtime });
+  const clean = (
+    await sh("git", ["config", "--get", "filter.pi-config-sync.clean"], a.dir)
+  ).stdout;
+  assert.match(clean, new RegExp(`^'${fakeNode}' '.*filter\\.mjs' clean`));
+  assert.doesNotMatch(clean, /\/opt\/pi\/pi/);
+  await fs.writeFile(
+    path.join(a.dir, "git-sync.jsonc"),
+    JSON.stringify({ nodePath: process.execPath }),
+  );
+  await commitLocalChanges({ dir: a.dir, runtime });
+  assert.match(
+    (await sh("git", ["config", "--get", "filter.pi-config-sync.clean"], a.dir))
+      .stdout,
+    new RegExp(`^'${process.execPath.replaceAll("'", "'\\\\''")}' `),
+  );
+  assert.match(
+    (await sh("git", ["ls-tree", "-r", "--name-only", "HEAD"], a.dir)).stdout,
+    /settings\.json/,
+  );
+});
 
-test("readConfig ignores an invalid nodePath with a warning", async () => { const a = await machine("bad-node"); await fs.writeFile(path.join(a.dir, "git-sync.jsonc"), '{"nodePath": 42}'); let warning = ""; const config = await readConfig({ dir: a.dir, notify: text => { warning = text; } }); assert.equal(config.nodePath, undefined); assert.match(warning, /invalid nodePath/); assert.equal((await readConfig({ dir: a.dir })).nodePath, undefined); await fs.writeFile(path.join(a.dir, "git-sync.jsonc"), '{"nodePath": "  /usr/local/bin/node "}'); assert.equal((await readConfig({ dir: a.dir })).nodePath, "/usr/local/bin/node"); });
+test("readConfig ignores an invalid nodePath with a warning", async () => {
+  const a = await machine("bad-node");
+  await fs.writeFile(path.join(a.dir, "git-sync.jsonc"), '{"nodePath": 42}');
+  let warning = "";
+  const config = await readConfig({
+    dir: a.dir,
+    notify: (text) => {
+      warning = text;
+    },
+  });
+  assert.equal(config.nodePath, undefined);
+  assert.match(warning, /invalid nodePath/);
+  assert.equal((await readConfig({ dir: a.dir })).nodePath, undefined);
+  await fs.writeFile(
+    path.join(a.dir, "git-sync.jsonc"),
+    '{"nodePath": "  /usr/local/bin/node "}',
+  );
+  assert.equal(
+    (await readConfig({ dir: a.dir })).nodePath,
+    "/usr/local/bin/node",
+  );
+});
 
-test("extensions in nested subfolders sync, and sync warns about what git cannot push", async () => { const a = await machine("nested"), remote = await bare(a.root); const ext = path.join(a.dir, "extensions"); await fs.mkdir(path.join(ext, "my-ext", "src"), { recursive: true }); await fs.writeFile(path.join(ext, "my-ext", "index.ts"), "export {}\n"); await fs.writeFile(path.join(ext, "my-ext", "src", "util.ts"), "export {}\n"); await fs.mkdir(path.join(ext, "cloned"), { recursive: true }); await fs.writeFile(path.join(ext, "cloned", "index.ts"), "export {}\n"); await sh("git", ["init", "-b", "main"], path.join(ext, "cloned")); await sh("git", ["add", "-A"], path.join(ext, "cloned")); await sh("git", ["commit", "-m", "inner"], path.join(ext, "cloned")); await fs.mkdir(path.join(ext, "wip"), { recursive: true }); await fs.writeFile(path.join(ext, "wip", "index.ts"), "export {}\n"); await sh("git", ["init", "-b", "main"], path.join(ext, "wip")); await fs.mkdir(path.join(ext, "token-counter"), { recursive: true }); await fs.writeFile(path.join(ext, "token-counter", "index.ts"), "export {}\n"); await sh("git", ["init", "-b", "main"], a.dir); await sh("git", ["remote", "add", "origin", remote], a.dir); assert.deepEqual(await syncGaps(a.dir), { denied: [], nested: ["extensions/cloned", "extensions/wip"] }); const warnings: string[] = []; await runSync(ctx, { auto: false, push: true }, { dir: a.dir, gh: fakeGh(), notify: (text, level) => { if (level === "warning") warnings.push(text); } }); const tree = (await sh("git", ["ls-tree", "-r", "--name-only", "HEAD"], a.dir)).stdout.split("\n"); assert.ok(tree.includes("extensions/my-ext/src/util.ts"), tree.join(",")); assert.ok(!tree.includes("extensions/cloned/index.ts")); assert.ok(!tree.some(file => file.startsWith("extensions/wip/"))); assert.equal((await sh("git", ["ls-files", "-s", "extensions/cloned"], a.dir)).stdout, ""); assert.ok(!tree.some(file => file.startsWith("extensions/token-counter/"))); assert.deepEqual(await syncGaps(a.dir), { denied: ["extensions/token-counter/"], nested: ["extensions/cloned", "extensions/wip"] }); assert.equal(warnings.filter(text => text.includes("nested git repositories are skipped") && text.includes("extensions/cloned") && text.includes("extensions/wip")).length, 1); assert.equal(warnings.filter(text => text.includes("looks sensitive") && text.includes("extensions/token-counter/")).length, 1); await runSync(ctx, { auto: false, push: true }, { dir: a.dir, gh: fakeGh(), notify: (text, level) => { if (level === "warning") warnings.push(text); } }); assert.equal(warnings.length, 2, "gap warnings are reported once per session"); });
+test("extensions in nested subfolders sync, and sync warns about what git cannot push", async () => {
+  const a = await machine("nested"),
+    remote = await bare(a.root);
+  const ext = path.join(a.dir, "extensions");
+  await fs.mkdir(path.join(ext, "my-ext", "src"), { recursive: true });
+  await fs.writeFile(path.join(ext, "my-ext", "index.ts"), "export {}\n");
+  await fs.writeFile(path.join(ext, "my-ext", "src", "util.ts"), "export {}\n");
+  await fs.mkdir(path.join(ext, "cloned"), { recursive: true });
+  await fs.writeFile(path.join(ext, "cloned", "index.ts"), "export {}\n");
+  await sh("git", ["init", "-b", "main"], path.join(ext, "cloned"));
+  await sh("git", ["add", "-A"], path.join(ext, "cloned"));
+  await sh("git", ["commit", "-m", "inner"], path.join(ext, "cloned"));
+  await fs.mkdir(path.join(ext, "wip"), { recursive: true });
+  await fs.writeFile(path.join(ext, "wip", "index.ts"), "export {}\n");
+  await sh("git", ["init", "-b", "main"], path.join(ext, "wip"));
+  await fs.mkdir(path.join(ext, "token-counter"), { recursive: true });
+  await fs.writeFile(
+    path.join(ext, "token-counter", "index.ts"),
+    "export {}\n",
+  );
+  await sh("git", ["init", "-b", "main"], a.dir);
+  await sh("git", ["remote", "add", "origin", remote], a.dir);
+  assert.deepEqual(await syncGaps(a.dir), {
+    denied: [],
+    nested: ["extensions/cloned", "extensions/wip"],
+  });
+  const warnings: string[] = [];
+  await runSync(
+    ctx,
+    { auto: false, push: true },
+    {
+      dir: a.dir,
+      gh: fakeGh(),
+      notify: (text, level) => {
+        if (level === "warning") warnings.push(text);
+      },
+    },
+  );
+  const tree = (
+    await sh("git", ["ls-tree", "-r", "--name-only", "HEAD"], a.dir)
+  ).stdout.split("\n");
+  assert.ok(tree.includes("extensions/my-ext/src/util.ts"), tree.join(","));
+  assert.ok(!tree.includes("extensions/cloned/index.ts"));
+  assert.ok(!tree.some((file) => file.startsWith("extensions/wip/")));
+  assert.equal(
+    (await sh("git", ["ls-files", "-s", "extensions/cloned"], a.dir)).stdout,
+    "",
+  );
+  assert.ok(!tree.some((file) => file.startsWith("extensions/token-counter/")));
+  assert.deepEqual(await syncGaps(a.dir), {
+    denied: ["extensions/token-counter/"],
+    nested: ["extensions/cloned", "extensions/wip"],
+  });
+  assert.equal(
+    warnings.filter(
+      (text) =>
+        text.includes("nested git repositories are skipped") &&
+        text.includes("extensions/cloned") &&
+        text.includes("extensions/wip"),
+    ).length,
+    1,
+  );
+  assert.equal(
+    warnings.filter(
+      (text) =>
+        text.includes("looks sensitive") &&
+        text.includes("extensions/token-counter/"),
+    ).length,
+    1,
+  );
+  await runSync(
+    ctx,
+    { auto: false, push: true },
+    {
+      dir: a.dir,
+      gh: fakeGh(),
+      notify: (text, level) => {
+        if (level === "warning") warnings.push(text);
+      },
+    },
+  );
+  assert.equal(
+    warnings.length,
+    2,
+    "gap warnings are reported once per session",
+  );
+});
