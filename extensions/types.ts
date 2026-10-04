@@ -5,6 +5,7 @@ import type {
 
 export interface GitSyncConfig {
 	autoSyncIntervalMinutes?: number;
+	autoSyncOnSessionStart?: boolean;
 	extraPaths?: string[];
 	includeHostname?: boolean;
 	machineLocalSettings?: string[];

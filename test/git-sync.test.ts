@@ -394,6 +394,29 @@ test("JSONC config drives rate limit, hostname, warnings, and extra paths", asyn
   );
 });
 
+test("autoSyncOnSessionStart: false disables the session-start auto sync", async () => {
+  const a = await machine("auto-sync-off");
+  await sh("git", ["init", "-b", "main"], a.dir);
+  await sh(
+    "git",
+    ["remote", "add", "origin", path.join(a.root, "none")],
+    a.dir,
+  );
+  await fs.mkdir(path.join(a.dir, ".git-sync"));
+  await fs.writeFile(
+    path.join(a.dir, ".git-sync", "state.json"),
+    JSON.stringify({
+      lastAutoSyncAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+    }),
+  );
+  assert.equal(await shouldAutoSync({ dir: a.dir }), true);
+  await fs.writeFile(
+    path.join(a.dir, "git-sync.jsonc"),
+    '{ "autoSyncOnSessionStart": false }',
+  );
+  assert.equal(await shouldAutoSync({ dir: a.dir }), false);
+});
+
 test("machine-local filter strips committed settings and preserves local values", async () => {
   const a = await machine("machine-a"),
     remote = await bare(a.root);

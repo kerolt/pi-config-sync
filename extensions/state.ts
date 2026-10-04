@@ -28,9 +28,10 @@ export async function writeState(state: { lastAutoSyncAt: string }, dir = dirOf(
 export async function shouldAutoSync(deps?: Deps) {
 	const dir = dirOf(deps);
 	if (isSubagentChild() || !(await isSyncableRepo(dir))) return false;
+	const config = await readConfig(deps);
+	if (config.autoSyncOnSessionStart === false) return false;
 	const state = await readState(dir);
 	if (!state.lastAutoSyncAt) return true;
-	const config = await readConfig(deps);
 	return (
 		Date.now() - Date.parse(state.lastAutoSyncAt) >=
 		(config.autoSyncIntervalMinutes ?? 5) * 60_000
