@@ -1,11 +1,15 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { runInit, runLink, showStatus } from "./commands.ts";
 import { commitLocalChanges, prepareCommit } from "./commit.ts";
-import { isSyncableRepo } from "./git.ts";
 import { bestEffortPush } from "./push.ts";
-import { shouldAutoSync, withLock, writeState } from "./state.ts";
+import {
+	shouldAutoSync,
+	shouldSyncOnShutdown,
+	withLock,
+	writeState,
+} from "./state.ts";
 import { runSync } from "./sync.ts";
-import { isSubagentChild, message, notify } from "./util.ts";
+import { message, notify } from "./util.ts";
 
 export * from "./commands.ts";
 export * from "./commit.ts";
@@ -72,8 +76,7 @@ export default function gitSync(pi: ExtensionAPI) {
 			typeof event === "object" && event
 				? (event as { reason?: string }).reason
 				: undefined;
-		if (reason === "reload" || isSubagentChild() || !(await isSyncableRepo()))
-			return;
+		if (reason === "reload" || !(await shouldSyncOnShutdown())) return;
 		try {
 			await withLock(ctx, async () => {
 				await prepareCommit(undefined, ctx);

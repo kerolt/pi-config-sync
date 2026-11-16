@@ -32,7 +32,8 @@ session start    → auto-sync (rate-limited, default every 5 min across session
                    ensure ignore rules → commit allowlisted changes → fetch
                    → fast-forward or rebase → push
                    → notifies you to /reload when remote changes were pulled
-session shutdown → best-effort commit + push (next start reconciles the rest)
+session shutdown → best-effort commit + push (next start reconciles the rest;
+                   disable with syncOnSessionShutdown: false)
 ```
 
 ### Machine-local settings
@@ -96,6 +97,7 @@ Create `~/.pi/agent/git-sync.jsonc`:
 {
   "autoSyncIntervalMinutes": 5,
   "autoSyncOnSessionStart": true,
+  "syncOnSessionShutdown": true,
   "includeHostname": true,
   "extraPaths": ["my-safe-directory"],
   "warnOnPublicRemote": true,
@@ -104,7 +106,7 @@ Create `~/.pi/agent/git-sync.jsonc`:
 }
 ```
 
-Unsafe extra paths (secrets, cache names, absolute paths, or `..`) are rejected. Set `autoSyncOnSessionStart` to `false` to keep pi from syncing when a session starts, so temporary edits to synced files stay local until you run `/gitsync sync`; the shutdown best-effort commit and push keeps running. Set `includeHostname` to `false` to omit the machine hostname from automatic commit messages. `machineLocalSettings` replaces the default list when set; it accepts top-level keys only, and `[]` disables stripping (the filter still normalizes committed JSON formatting). Useful candidates include `shellPath`, `externalEditor`, `npmCommand`, `sessionDir`, and `trackingId`. `nodePath` is optional and only needed when pi runs as a bundled executable and Node.js is not on `PATH`, or to pin a specific interpreter for the `settings.json` filter.
+Unsafe extra paths (secrets, cache names, absolute paths, or `..`) are rejected. Set `autoSyncOnSessionStart` to `false` to keep pi from syncing when a session starts, so temporary edits to synced files stay local until you run `/gitsync sync`. Set `syncOnSessionShutdown` to `false` to skip the best-effort commit and push when a session ends, so every sync happens only when you start a session or run `/gitsync sync`. Both default to `true`. Set `includeHostname` to `false` to omit the machine hostname from automatic commit messages. `machineLocalSettings` replaces the default list when set; it accepts top-level keys only, and `[]` disables stripping (the filter still normalizes committed JSON formatting). Useful candidates include `shellPath`, `externalEditor`, `npmCommand`, `sessionDir`, and `trackingId`. `nodePath` is optional and only needed when pi runs as a bundled executable and Node.js is not on `PATH`, or to pin a specific interpreter for the `settings.json` filter.
 
 ## Conflicts and uninstall
 

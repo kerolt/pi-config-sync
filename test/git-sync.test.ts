@@ -17,6 +17,7 @@ import {
   runLink,
   runSync,
   shouldAutoSync,
+  shouldSyncOnShutdown,
   stagedSecretFiles,
   stripJsonComments,
   syncGaps,
@@ -415,6 +416,29 @@ test("autoSyncOnSessionStart: false disables the session-start auto sync", async
     '{ "autoSyncOnSessionStart": false }',
   );
   assert.equal(await shouldAutoSync({ dir: a.dir }), false);
+});
+
+test("syncOnSessionShutdown: false disables the shutdown commit and push", async () => {
+  const a = await machine("shutdown-off");
+  assert.equal(await shouldSyncOnShutdown({ dir: a.dir }), false);
+  await sh("git", ["init", "-b", "main"], a.dir);
+  await sh(
+    "git",
+    ["remote", "add", "origin", path.join(a.root, "none")],
+    a.dir,
+  );
+  assert.equal(await shouldSyncOnShutdown({ dir: a.dir }), true);
+  process.env.PI_SUBAGENT_DEPTH = "1";
+  try {
+    assert.equal(await shouldSyncOnShutdown({ dir: a.dir }), false);
+  } finally {
+    delete process.env.PI_SUBAGENT_DEPTH;
+  }
+  await fs.writeFile(
+    path.join(a.dir, "git-sync.jsonc"),
+    '{ "syncOnSessionShutdown": false }',
+  );
+  assert.equal(await shouldSyncOnShutdown({ dir: a.dir }), false);
 });
 
 test("machine-local filter strips committed settings and preserves local values", async () => {
