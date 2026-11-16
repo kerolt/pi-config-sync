@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import {
+import gitSync, {
   commitLocalChanges,
   ensureFilter,
   ensureIgnoreRules,
@@ -439,6 +439,40 @@ test("syncOnSessionShutdown: false disables the shutdown commit and push", async
     '{ "syncOnSessionShutdown": false }',
   );
   assert.equal(await shouldSyncOnShutdown({ dir: a.dir }), false);
+});
+
+test("/gitsync sync and push take a commit message argument", async () => {
+  const a = await machine("commit-message");
+  const remote = await bare(a.root);
+  await runInit(remote, ctx, { dir: a.dir, gh: fakeGh() });
+  type Handler = (args: string, ctx: unknown) => Promise<void>;
+  const handlers: { command?: Handler } = {};
+  gitSync({
+    registerCommand: (_name: string, definition: { handler: Handler }) => {
+      handlers.command = definition.handler;
+    },
+    on: () => {},
+  } as never);
+  const handler = handlers.command;
+  assert.ok(handler);
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = a.dir;
+  const subject = async () =>
+    (await sh("git", ["log", "-1", "--format=%s"], a.dir)).stdout.trim();
+  try {
+    await fs.writeFile(path.join(a.dir, "AGENTS.md"), "rules one\n");
+    await handler("sync 调整全局规则", ctx);
+    assert.equal(await subject(), "调整全局规则");
+    await fs.writeFile(path.join(a.dir, "AGENTS.md"), "rules two\n");
+    await handler("push 只推送这次修改", ctx);
+    assert.equal(await subject(), "只推送这次修改");
+    await fs.writeFile(path.join(a.dir, "AGENTS.md"), "rules three\n");
+    await handler("sync", ctx);
+    assert.match(await subject(), /^pi config: auto-sync from /);
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
 });
 
 test("machine-local filter strips committed settings and preserves local values", async () => {

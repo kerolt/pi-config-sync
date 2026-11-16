@@ -46,13 +46,22 @@ export default function gitSync(pi: ExtensionAPI) {
 					if (command === "link") return runLink(arg, ctx);
 					if (command === "status") return showStatus(ctx);
 					if (command === "sync")
-						return runSync(ctx, { auto: false, push: true });
+						return runSync(ctx, {
+							auto: false,
+							push: true,
+							message: arg || undefined,
+						});
 					if (command === "push")
-						return runSync(ctx, { auto: false, push: true, skipPull: true });
+						return runSync(ctx, {
+							auto: false,
+							push: true,
+							skipPull: true,
+							message: arg || undefined,
+						});
 					if (command === "pull")
 						return runSync(ctx, { auto: false, push: false });
 					throw new Error(
-						"Unknown command. Usage: /gitsync [init|link|status|sync|push|pull]",
+						"Unknown command. Usage: /gitsync [init|link|status|sync|push|pull] [commit message]",
 					);
 				});
 			} catch (error) {

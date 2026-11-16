@@ -44,7 +44,7 @@ The filter is fail-open: a checkout on a machine without pi-config-sync still wo
 
 The filter script runs under the Node.js that runs pi. When pi ships as a single bundled executable (for example through mise), that executable cannot run the script, so the package uses the first `node` found on `PATH` instead and falls back to a disabled filter with a warning. Set `nodePath` in `git-sync.jsonc` to pin a specific Node.js binary; the git filter configuration is corrected on the next sync.
 
-Commits look like `pi config: auto-sync from <hostname>`. Concurrent pi sessions coordinate through a pid-liveness lock, subagent child processes never sync, and a diverged repo aborts the rebase and asks you to resolve manually — nothing is ever forced.
+Commits look like `pi config: auto-sync from <hostname>`. Pass a message to `/gitsync sync` or `/gitsync push` to use it as the commit subject for that run instead. Concurrent pi sessions coordinate through a pid-liveness lock, subagent child processes never sync, and a diverged repo aborts the rebase and asks you to resolve manually — nothing is ever forced.
 
 ## Commands
 
@@ -53,9 +53,11 @@ Commits look like `pi config: auto-sync from <hostname>`. Concurrent pi sessions
 | `/gitsync init [name\|owner/name\|url]` | Create and connect the first-machine repository |
 | `/gitsync link [name\|owner/name\|url]` | Connect another machine |
 | `/gitsync status` | Show repository and tracked-secret status |
-| `/gitsync sync` | Commit, fetch/rebase, and push |
-| `/gitsync push` | Commit and push without pulling |
+| `/gitsync sync [message]` | Commit, fetch/rebase, and push |
+| `/gitsync push [message]` | Commit and push without pulling |
 | `/gitsync pull` | Fetch and integrate remote changes |
+
+The optional `message` becomes the commit subject for the changes that run commits. Without it the automatic `pi config: auto-sync from <hostname>` subject is used. `/gitsync pull` and automatic syncs always use the automatic subject.
 
 ## Security model
 

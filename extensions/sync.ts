@@ -15,7 +15,12 @@ import { dirOf, notify, warnOnce } from "./util.ts";
 
 export async function runSync(
 	ctx: Ctx | undefined,
-	options: { auto: boolean; push: boolean; skipPull?: boolean },
+	options: {
+		auto: boolean;
+		push: boolean;
+		skipPull?: boolean;
+		message?: string;
+	},
 	deps?: Deps,
 ) {
 	const dir = dirOf(deps);
@@ -41,7 +46,7 @@ export async function runSync(
 				deps,
 			);
 		const changed: string[] = [];
-		if (await commitLocalChanges(deps, undefined, ctx))
+		if (await commitLocalChanges(deps, options.message, ctx))
 			changed.push("committed local changes");
 		for (const line of gapMessages(
 			await syncGaps(dir, await readConfig(deps, ctx)),
